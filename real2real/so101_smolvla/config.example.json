@@ -1,0 +1,20 @@
+{
+  "server_address": "127.0.0.1:8765",
+  "server_model_path": "/absolute/path/to/robot-policy-experiments/artifacts/real_smolvla/merged",
+  "follower_usb_serial": "",
+  "follower_port": "",
+  "robot_id": "my_follower",
+  "leader_port": "",
+  "leader_id": "my_leader",
+  "conda_env": "lerobot",
+  "cameras": {
+    "camera1": 1,
+    "camera2": 3,
+    "camera3": 0
+  },
+  "task": "Pick up the cube and place it in the basket",
+  "dataset_repo_id": "local/so101_pickplace",
+  "training_episodes": 20,
+  "training_steps": 20000,
+  "result_root": "results/real_smolvla"
+}

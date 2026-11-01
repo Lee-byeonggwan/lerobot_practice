@@ -1,0 +1,7 @@
+{
+  "observed_cache_refs": {
+    "lerobot/smolvla_base": "5e8d12a6e2975b0e5e5fce7c8caf47c371d257b6",
+    "HuggingFaceTB/SmolVLM2-500M-Video-Instruct": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"
+  },
+  "note": "Observed in the original local cache. Training launchers use upstream model IDs; these cache references are not a claim that Hub main is permanently pinned. No model weights are distributed."
+}

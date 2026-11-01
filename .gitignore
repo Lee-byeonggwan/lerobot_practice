@@ -1,0 +1,35 @@
+# Local configuration and robot-specific calibration
+**/config.local.json
+**/calibration/
+.env
+.env.*
+!.env.example
+# Generated data, models, videos, results, upstream assets/source
+**/data/
+**/datasets/
+**/outputs/
+**/results/
+**/artifacts/
+**/assets/
+**/downloads/
+sim2sim/so101_isaac/IsaacLab/
+sim2sim/so101_isaac/leisaac/
+*.safetensors
+*.pt
+*.pth
+*.hdf5
+*.h5
+*.parquet
+*.mp4
+*.avi
+*.zip
+*.log
+# Environments and caches
+**/.venv*/
+**/.cache/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/

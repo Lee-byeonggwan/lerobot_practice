@@ -1,0 +1,367 @@
+diff --git a/source/leisaac/leisaac/__init__.py b/source/leisaac/leisaac/__init__.py
+index 8d885e6..1295645 100644
+--- a/source/leisaac/leisaac/__init__.py
++++ b/source/leisaac/leisaac/__init__.py
+@@ -10,7 +10,9 @@ Python module serving as a project/extension template.
+ # Register Gym environments.
+ try:
+     from .tasks import *
+-    from .utils import monkey_patch
++    import os
++    if os.environ.get("LEISAAC_TASK_SCOPE") != "lift_cube":
++        from .utils import monkey_patch
+ except ImportError as e:
+     print(f"[leisaac] ERROR: Failed to import: {e!r}")
+     print("[leisaac] If you are using remote teleoperation, you can ignore the above error.")
+diff --git a/source/leisaac/leisaac/assets/robots/lerobot.py b/source/leisaac/leisaac/assets/robots/lerobot.py
+index 1d80101..9195172 100644
+--- a/source/leisaac/leisaac/assets/robots/lerobot.py
++++ b/source/leisaac/leisaac/assets/robots/lerobot.py
+@@ -23,7 +23,7 @@ SO101_FOLLOWER_CFG = ArticulationCfg(
+     ),
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(2.2, -0.61, 0.89),
+-        rot=(0.0, 0.0, 0.0, 1.0),
++        rot=(0.0, 0.0, 1.0, 0.0),  # xyzw: preserve upstream's 180-degree Z rotation
+         joint_pos={
+             "shoulder_pan": 0.0,
+             "shoulder_lift": 0.0,
+@@ -97,7 +97,7 @@ LEKIWI_CFG = ArticulationCfg(
+     ),
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(0.0, 0.0, 0.0),
+-        rot=(1.0, 0.0, 0.0, 0.0),
++        rot=(0.0, 0.0, 0.0, 1.0),  # xyzw identity
+         joint_pos={
+             "shoulder_pan": 0.0,
+             "shoulder_lift": 0.0,
+diff --git a/source/leisaac/leisaac/assets/scenes/simple.py b/source/leisaac/leisaac/assets/scenes/simple.py
+index 12d1ac2..50c15f3 100644
+--- a/source/leisaac/leisaac/assets/scenes/simple.py
++++ b/source/leisaac/leisaac/assets/scenes/simple.py
+@@ -1,3 +1,4 @@
++import os
+ from pathlib import Path
+ 
+ import isaaclab.sim as sim_utils
+@@ -6,7 +7,9 @@ from leisaac.utils.constant import ASSETS_ROOT
+ 
+ """Configuration for the Table with Cube Scene"""
+ SCENES_ROOT = Path(ASSETS_ROOT) / "scenes"
+-TABLE_WITH_CUBE_USD_PATH = str(SCENES_ROOT / "table_with_cube" / "scene.usd")
++TABLE_WITH_CUBE_USD_PATH = os.environ.get(
++    "LEISAAC_LIFTCUBE_SCENE", str(SCENES_ROOT / "table_with_cube" / "scene.usd")
++)
+ 
+ TABLE_WITH_CUBE_CFG = AssetBaseCfg(
+     spawn=sim_utils.UsdFileCfg(
+diff --git a/source/leisaac/leisaac/devices/action_process.py b/source/leisaac/leisaac/devices/action_process.py
+index 6abcc5d..a7a01ce 100644
+--- a/source/leisaac/leisaac/devices/action_process.py
++++ b/source/leisaac/leisaac/devices/action_process.py
+@@ -13,11 +13,15 @@ def init_action_cfg(action_cfg, device):
+             asset_name="robot",
+             joint_names=["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"],
+             scale=1.0,
++            preserve_order=True,
++            use_default_offset=False,
+         )
+         action_cfg.gripper_action = mdp.JointPositionActionCfg(
+             asset_name="robot",
+             joint_names=["gripper"],
+             scale=1.0,
++            preserve_order=True,
++            use_default_offset=False,
+         )
+     elif device in ["keyboard", "gamepad", "lekiwi-keyboard", "lekiwi-gamepad"]:
+         action_cfg.arm_action = mdp.DifferentialInverseKinematicsActionCfg(
+diff --git a/source/leisaac/leisaac/enhance/envs/__init__.py b/source/leisaac/leisaac/enhance/envs/__init__.py
+index 258e964..ccba9fa 100644
+--- a/source/leisaac/leisaac/enhance/envs/__init__.py
++++ b/source/leisaac/leisaac/enhance/envs/__init__.py
+@@ -1,6 +1,9 @@
++import os
+ from . import mdp
+-from .direct_rl_env import RecorderEnhanceDirectRLEnv
+-from .direct_rl_env_cfg import RecorderEnhanceDirectRLEnvCfg
+-from .manager_based_rl_digital_twin_env import ManagerBasedRLDigitalTwinEnv
+-from .manager_based_rl_digital_twin_env_cfg import ManagerBasedRLDigitalTwinEnvCfg
+-from .manager_based_rl_leisaac_mimic_env import ManagerBasedRLLeIsaacMimicEnv
++
++if os.environ.get("LEISAAC_TASK_SCOPE") != "lift_cube":
++    from .direct_rl_env import RecorderEnhanceDirectRLEnv
++    from .direct_rl_env_cfg import RecorderEnhanceDirectRLEnvCfg
++    from .manager_based_rl_digital_twin_env import ManagerBasedRLDigitalTwinEnv
++    from .manager_based_rl_digital_twin_env_cfg import ManagerBasedRLDigitalTwinEnvCfg
++    from .manager_based_rl_leisaac_mimic_env import ManagerBasedRLLeIsaacMimicEnv
+diff --git a/source/leisaac/leisaac/enhance/envs/mdp/events.py b/source/leisaac/leisaac/enhance/envs/mdp/events.py
+index 2853083..2810d8d 100644
+--- a/source/leisaac/leisaac/enhance/envs/mdp/events.py
++++ b/source/leisaac/leisaac/enhance/envs/mdp/events.py
+@@ -27,13 +27,13 @@ def randomize_camera_uniform(
+     """
+     asset: Camera = env.scene[asset_cfg.name]
+ 
+-    ori_pos_w = asset.data.pos_w[env_ids]
++    ori_pos_w = asset.data.pos_w.torch[env_ids]
+     if convention == "ros":
+-        ori_quat_w = asset.data.quat_w_ros[env_ids]
++        ori_quat_w = asset.data.quat_w_ros.torch[env_ids]
+     elif convention == "opengl":
+-        ori_quat_w = asset.data.quat_w_opengl[env_ids]
++        ori_quat_w = asset.data.quat_w_opengl.torch[env_ids]
+     elif convention == "world":
+-        ori_quat_w = asset.data.quat_w_world[env_ids]
++        ori_quat_w = asset.data.quat_w_world.torch[env_ids]
+ 
+     range_list = [pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+     ranges = torch.tensor(range_list, device=asset.device)
+diff --git a/source/leisaac/leisaac/enhance/envs/mdp/observations.py b/source/leisaac/leisaac/enhance/envs/mdp/observations.py
+index 921bc6b..a52913f 100644
+--- a/source/leisaac/leisaac/enhance/envs/mdp/observations.py
++++ b/source/leisaac/leisaac/enhance/envs/mdp/observations.py
+@@ -2,7 +2,8 @@ import isaaclab.utils.math as math_utils
+ import torch
+ from isaaclab.assets import Articulation
+ from isaaclab.envs import ManagerBasedEnv, ManagerBasedRLEnv
+-from isaaclab.envs.mdp.observations import image
++from isaaclab.envs.mdp.observations import image_rgb as image
++from isaaclab.utils.images import normalize_rgb
+ from isaaclab.managers import SceneEntityCfg
+ from isaaclab.sensors import FrameTransformer
+ from leisaac.utils.robot_utils import convert_lekiwi_wheel_action_env2robot
+@@ -31,7 +32,8 @@ def overlay_image(
+     """
+     assert data_type == "rgb", "Only 'rgb' is supported for overlay_image."
+ 
+-    sim_image = image(env, sensor_cfg, data_type, convert_perspective_to_orthogonal, normalize)
++    sim_image = env.scene.sensors[sensor_cfg.name].data.output[data_type].torch[..., :3]
++    sim_image = normalize_rgb(sim_image) if normalize else sim_image.clone()
+ 
+     def image_overlapping(
+         back_image: torch.Tensor,  # [num_env, H, W, C]
+@@ -98,9 +100,9 @@ def ee_frame_state(
+     Return the state of the end effector frame in the robot coordinate system.
+     """
+     robot = env.scene[robot_cfg.name]
+-    robot_root_pos, robot_root_quat = robot.data.root_pos_w, robot.data.root_quat_w
++    robot_root_pos, robot_root_quat = robot.data.root_pos_w.torch, robot.data.root_quat_w.torch
+     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+-    ee_frame_pos, ee_frame_quat = ee_frame.data.target_pos_w[:, 0, :], ee_frame.data.target_quat_w[:, 0, :]
++    ee_frame_pos, ee_frame_quat = ee_frame.data.target_pos_w.torch[:, 0, :], ee_frame.data.target_quat_w.torch[:, 0, :]
+     ee_frame_pos_robot, ee_frame_quat_robot = math_utils.subtract_frame_transforms(
+         robot_root_pos, robot_root_quat, ee_frame_pos, ee_frame_quat
+     )
+@@ -116,7 +118,7 @@ def joint_pos_target(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEnti
+     """
+     # extract the used quantities (to enable type-hinting)
+     asset: Articulation = env.scene[asset_cfg.name]
+-    return asset.data.joint_pos_target[:, asset_cfg.joint_ids]
++    return asset.data.joint_pos_target.torch[:, asset_cfg.joint_ids]
+ 
+ 
+ def user_based_velocity_action(
+diff --git a/source/leisaac/leisaac/tasks/__init__.py b/source/leisaac/leisaac/tasks/__init__.py
+index 13df3c3..831fe83 100644
+--- a/source/leisaac/leisaac/tasks/__init__.py
++++ b/source/leisaac/leisaac/tasks/__init__.py
+@@ -14,4 +14,9 @@ from isaaclab_tasks.utils import import_packages
+ # The blacklist is used to prevent importing configs from sub-packages
+ _BLACKLIST_PKGS = ["utils", ".mdp"]
+ # Import all configs in this package
+-import_packages(__name__, _BLACKLIST_PKGS)
++import os
++
++if os.environ.get("LEISAAC_TASK_SCOPE") == "lift_cube":
++    from . import lift_cube
++else:
++    import_packages(__name__, _BLACKLIST_PKGS)
+diff --git a/source/leisaac/leisaac/tasks/lift_cube/lift_cube_env_cfg.py b/source/leisaac/leisaac/tasks/lift_cube/lift_cube_env_cfg.py
+index 05af275..1ce8454 100644
+--- a/source/leisaac/leisaac/tasks/lift_cube/lift_cube_env_cfg.py
++++ b/source/leisaac/leisaac/tasks/lift_cube/lift_cube_env_cfg.py
+@@ -37,8 +37,8 @@ class LiftCubeSceneCfg(SingleArmTaskSceneCfg):
+     front: TiledCameraCfg = TiledCameraCfg(
+         prim_path="{ENV_REGEX_NS}/Robot/base/front_camera",
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(-0.6, -0.75, 0.38), rot=(0.77337, 0.55078, -0.2374, -0.20537), convention="opengl"
+-        ),  # wxyz
++            pos=(-0.6, -0.75, 0.38), rot=(0.55078, -0.2374, -0.20537, 0.77337), convention="opengl"
++        ),  # Isaac Lab 3.0: xyzw; same physical rotation as upstream.
+         data_types=["rgb"],
+         spawn=sim_utils.PinholeCameraCfg(
+             focal_length=40.6,
+diff --git a/source/leisaac/leisaac/tasks/lift_cube/mdp/observations.py b/source/leisaac/leisaac/tasks/lift_cube/mdp/observations.py
+index eb808e5..fc5b45b 100644
+--- a/source/leisaac/leisaac/tasks/lift_cube/mdp/observations.py
++++ b/source/leisaac/leisaac/tasks/lift_cube/mdp/observations.py
+@@ -18,10 +18,11 @@ def object_grasped(
+     ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+     object: RigidObject = env.scene[object_cfg.name]
+ 
+-    object_pos = object.data.root_pos_w
+-    end_effector_pos = ee_frame.data.target_pos_w[:, 1, :]
++    object_pos = object.data.root_pos_w.torch
++    end_effector_pos = ee_frame.data.target_pos_w.torch[:, 1, :]
+     pos_diff = torch.linalg.vector_norm(object_pos - end_effector_pos, dim=1)
+ 
+-    grasped = torch.logical_and(pos_diff < diff_threshold, robot.data.joint_pos[:, -1] < grasp_threshold)
++    gripper_index = robot.joint_names.index("gripper")
++    grasped = torch.logical_and(pos_diff < diff_threshold, robot.data.joint_pos.torch[:, gripper_index] < grasp_threshold)
+ 
+     return grasped
+diff --git a/source/leisaac/leisaac/tasks/lift_cube/mdp/terminations.py b/source/leisaac/leisaac/tasks/lift_cube/mdp/terminations.py
+index 878e222..75a85e1 100644
+--- a/source/leisaac/leisaac/tasks/lift_cube/mdp/terminations.py
++++ b/source/leisaac/leisaac/tasks/lift_cube/mdp/terminations.py
+@@ -30,9 +30,9 @@ def cube_height_above_base(
+     done = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+     cube: RigidObject = env.scene[cube_cfg.name]
+     robot: Articulation = env.scene[robot_cfg.name]
+-    cube_height = cube.data.root_pos_w[:, 2]
++    cube_height = cube.data.root_pos_w.torch[:, 2]
+     base_index = robot.data.body_names.index(robot_base_name)
+-    robot_base_height = robot.data.body_pos_w[:, base_index, 2]
++    robot_base_height = robot.data.body_pos_w.torch[:, base_index, 2]
+     above_base = cube_height - robot_base_height > height_threshold
+     done = torch.logical_and(done, above_base)
+ 
+diff --git a/source/leisaac/leisaac/tasks/template/__init__.py b/source/leisaac/leisaac/tasks/template/__init__.py
+index 2dc4d88..85596df 100644
+--- a/source/leisaac/leisaac/tasks/template/__init__.py
++++ b/source/leisaac/leisaac/tasks/template/__init__.py
+@@ -1,23 +1,31 @@
+-from .bi_arm_env_cfg import (
+-    BiArmObservationsCfg,
+-    BiArmTaskEnvCfg,
+-    BiArmTaskSceneCfg,
+-    BiArmTerminationsCfg,
+-)
+-from .direct.bi_arm_env import BiArmTaskDirectEnv, BiArmTaskDirectEnvCfg
+-from .direct.single_arm_env import SingleArmTaskDirectEnv, SingleArmTaskDirectEnvCfg
+-from .lekiwi_env_cfg import (
+-    LeKiwiActionsCfg,
+-    LeKiwiEventCfg,
+-    LeKiwiObservationsCfg,
+-    LeKiwiRewardsCfg,
+-    LeKiwiTaskEnvCfg,
+-    LeKiwiTaskSceneCfg,
+-    LeKiwiTerminationsCfg,
+-)
+-from .single_arm_env_cfg import (
+-    SingleArmObservationsCfg,
+-    SingleArmTaskEnvCfg,
+-    SingleArmTaskSceneCfg,
+-    SingleArmTerminationsCfg,
+-)
++import os
++
++if os.environ.get("LEISAAC_TASK_SCOPE") == "lift_cube":
++    from .single_arm_env_cfg import (
++        SingleArmObservationsCfg, SingleArmTaskEnvCfg,
++        SingleArmTaskSceneCfg, SingleArmTerminationsCfg,
++    )
++else:
++    from .bi_arm_env_cfg import (
++        BiArmObservationsCfg,
++        BiArmTaskEnvCfg,
++        BiArmTaskSceneCfg,
++        BiArmTerminationsCfg,
++    )
++    from .direct.bi_arm_env import BiArmTaskDirectEnv, BiArmTaskDirectEnvCfg
++    from .direct.single_arm_env import SingleArmTaskDirectEnv, SingleArmTaskDirectEnvCfg
++    from .lekiwi_env_cfg import (
++        LeKiwiActionsCfg,
++        LeKiwiEventCfg,
++        LeKiwiObservationsCfg,
++        LeKiwiRewardsCfg,
++        LeKiwiTaskEnvCfg,
++        LeKiwiTaskSceneCfg,
++        LeKiwiTerminationsCfg,
++    )
++    from .single_arm_env_cfg import (
++        SingleArmObservationsCfg,
++        SingleArmTaskEnvCfg,
++        SingleArmTaskSceneCfg,
++        SingleArmTerminationsCfg,
++    )
+diff --git a/source/leisaac/leisaac/tasks/template/mdp/__init__.py b/source/leisaac/leisaac/tasks/template/mdp/__init__.py
+index 8b9f4d1..2c923fa 100644
+--- a/source/leisaac/leisaac/tasks/template/mdp/__init__.py
++++ b/source/leisaac/leisaac/tasks/template/mdp/__init__.py
+@@ -1,2 +1,3 @@
++from isaaclab.managers import ActionTermCfg
+ from isaaclab.envs.mdp import *
+ from leisaac.enhance.envs.mdp import *
+diff --git a/source/leisaac/leisaac/tasks/template/single_arm_env_cfg.py b/source/leisaac/leisaac/tasks/template/single_arm_env_cfg.py
+index d337a20..0212785 100644
+--- a/source/leisaac/leisaac/tasks/template/single_arm_env_cfg.py
++++ b/source/leisaac/leisaac/tasks/template/single_arm_env_cfg.py
+@@ -17,6 +17,7 @@ from isaaclab.scene import InteractiveSceneCfg
+ from isaaclab.sensors import FrameTransformerCfg, OffsetCfg, TiledCameraCfg
+ from isaaclab.utils import configclass
+ from isaaclab.utils.datasets.episode_data import EpisodeData
++from isaaclab_physx.physics import PhysxCfg
+ from leisaac.assets.robots.lerobot import SO101_FOLLOWER_CFG
+ from leisaac.devices.action_process import init_action_cfg, preprocess_device_action
+ from leisaac.enhance.datasets.lerobot_dataset_handler import LeRobotDatasetCfg
+@@ -50,8 +51,8 @@ class SingleArmTaskSceneCfg(InteractiveSceneCfg):
+     wrist: TiledCameraCfg = TiledCameraCfg(
+         prim_path="{ENV_REGEX_NS}/Robot/gripper/wrist_camera",
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(-0.001, 0.1, -0.04), rot=(-0.404379, -0.912179, -0.0451242, 0.0486914), convention="ros"
+-        ),  # wxyz
++            pos=(-0.001, 0.1, -0.04), rot=(-0.912179, -0.0451242, 0.0486914, -0.404379), convention="ros"
++        ),  # xyzw (Isaac Lab 3.0)
+         data_types=["rgb"],
+         spawn=sim_utils.PinholeCameraCfg(
+             focal_length=36.5,
+@@ -68,8 +69,8 @@ class SingleArmTaskSceneCfg(InteractiveSceneCfg):
+     front: TiledCameraCfg = TiledCameraCfg(
+         prim_path="{ENV_REGEX_NS}/Robot/base/front_camera",
+         offset=TiledCameraCfg.OffsetCfg(
+-            pos=(0.0, -0.5, 0.6), rot=(0.1650476, -0.9862856, 0.0, 0.0), convention="ros"
+-        ),  # wxyz
++            pos=(0.0, -0.5, 0.6), rot=(-0.9862856, 0.0, 0.0, 0.1650476), convention="ros"
++        ),  # xyzw (Isaac Lab 3.0)
+         data_types=["rgb"],
+         spawn=sim_utils.PinholeCameraCfg(
+             focal_length=28.7,
+@@ -183,9 +184,9 @@ class SingleArmTaskEnvCfg(ManagerBasedRLEnvCfg):
+         self.viewer.eye = (1.4, -0.9, 1.2)
+         self.viewer.lookat = (2.0, -0.5, 1.0)
+ 
+-        self.sim.physx.bounce_threshold_velocity = 0.01
+-        self.sim.physx.friction_correlation_distance = 0.00625
+-        self.sim.render.enable_translucency = True
++        self.sim.physics = PhysxCfg(bounce_threshold_velocity=0.01, friction_correlation_distance=0.00625)
++        # Lab 3.0 configures rendering on each camera's renderer_cfg. The opaque
++        # LiftCube scene does not require the old global translucency override.
+ 
+         self.scene.ee_frame.visualizer_cfg.markers["frame"].scale = (0.05, 0.05, 0.05)
+ 
+diff --git a/source/leisaac/leisaac/utils/general_assets.py b/source/leisaac/leisaac/utils/general_assets.py
+index 2ee01fe..ef4e0fb 100644
+--- a/source/leisaac/leisaac/utils/general_assets.py
++++ b/source/leisaac/leisaac/utils/general_assets.py
+@@ -54,9 +54,9 @@ def get_prim_pos_rot(prim):
+     matrix = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+     if matrix.Orthonormalize(issueWarning=True):
+         rot = matrix.ExtractRotationQuat()
+-        rot_list = [rot.GetReal(), rot.GetImaginary()[0], rot.GetImaginary()[1], rot.GetImaginary()[2]]
++        rot_list = [rot.GetImaginary()[0], rot.GetImaginary()[1], rot.GetImaginary()[2], rot.GetReal()]
+     else:
+-        rot_list = [1, 0, 0, 0]
++        rot_list = [0, 0, 0, 1]
+     pos = matrix.ExtractTranslation()
+     pos_list = list(pos)
+ 
+@@ -103,7 +103,7 @@ def get_all_joints_without_fixed(articulation_prim):
+     return [joint for joint in joints if not is_fixed_joint(joint)]
+ 
+ 
+-import isaacsim.core.utils.prims as prim_utils
++import isaaclab.sim.utils as prim_utils
+ from isaaclab.assets.articulation import ArticulationCfg
+ from isaaclab.assets.rigid_object import RigidObjectCfg
+ from isaaclab.sim.spawners.spawner_cfg import RigidObjectSpawnerCfg
